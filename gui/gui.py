@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QFrame
 )
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal
-from PyQt6.QtGui import QPainter, QColor, QPen, QFont, QLinearGradient
+from PyQt6.QtGui import QPainter, QColor, QPen, QFont, QLinearGradient, QPainterPath
 
 
 class DragHandle(QWidget):
@@ -16,16 +16,21 @@ class DragHandle(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedWidth(40)
-        # 移除最小高度限制，讓它隨視窗調整
-        # self.setMinimumHeight(200)
+        self.is_night_mode = False
+        
+    def set_night_mode(self, is_night):
+        """設置夜間模式"""
+        self.is_night_mode = is_night
+        self.update()
         
     def paintEvent(self, event):
         """繪製帶有斜線紋理的拖拽區塊"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # 背景：半透明白色
-        painter.fillRect(self.rect(), QColor(255, 255, 255, 180))
+        # 背景：半透明
+        bg_color = QColor(30, 30, 30, 180) if self.is_night_mode else QColor(255, 255, 255, 180)
+        painter.fillRect(self.rect(), bg_color)
         
         # 繪製黃色斜線紋理
         pen = QPen(QColor(255, 193, 7, 255))  # 黃色，不透明
@@ -35,6 +40,61 @@ class DragHandle(QWidget):
         spacing = 8
         for i in range(-self.height(), self.height(), spacing):
             painter.drawLine(0, i, self.width(), i + self.width())
+
+
+class ThemeButton(QPushButton):
+    """夜間模式切換按鈕"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(24, 24)
+        self.setCheckable(True)
+        self.setChecked(False)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("切換夜間模式")
+        self.is_night_mode = False
+        
+    def set_night_mode(self, is_night):
+        self.is_night_mode = is_night
+        self.setChecked(is_night)
+        self.update()
+        
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # 懸停效果
+        if self.underMouse():
+            painter.setBrush(QColor(255, 193, 7, 40))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(self.rect(), 4, 4)
+            
+        center = self.rect().center()
+        
+        if self.isChecked(): # Night Mode (Moon)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(255, 255, 255)) # White Moon
+            
+            path = QPainterPath()
+            path.addEllipse(center.x() - 4, center.y() - 4, 8, 8)
+            
+            path2 = QPainterPath()
+            path2.addEllipse(center.x() - 1, center.y() - 6, 8, 8)
+            
+            path = path.subtracted(path2)
+            painter.drawPath(path)
+        else: # Day Mode (Sun)
+            painter.setPen(QPen(QColor(255, 193, 7), 1.5)) # Yellow Sun
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(center, 4, 4)
+            
+            # Rays
+            painter.save()
+            painter.translate(center)
+            for i in range(8):
+                painter.rotate(45)
+                painter.drawLine(0, 6, 0, 8)
+            painter.restore()
 
 
 class PinButton(QPushButton):
@@ -47,6 +107,11 @@ class PinButton(QPushButton):
         self.setChecked(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip("釘選在最上層")
+        self.is_night_mode = False
+
+    def set_night_mode(self, is_night):
+        self.is_night_mode = is_night
+        self.update()
         
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -59,7 +124,13 @@ class PinButton(QPushButton):
             painter.drawRoundedRect(self.rect(), 4, 4)
             
         # 繪製圖標
-        color = QColor(255, 193, 7) if self.isChecked() else QColor(150, 150, 150)
+        # Night mode: White when checked, Grey when unchecked? Or Yellow?
+        # User said "icon and text become white".
+        if self.is_night_mode:
+             color = QColor(255, 255, 255) if self.isChecked() else QColor(100, 100, 100)
+        else:
+             color = QColor(255, 193, 7) if self.isChecked() else QColor(150, 150, 150)
+
         painter.setPen(QPen(color, 1.5))
         painter.setBrush(color if self.isChecked() else Qt.BrushStyle.NoBrush)
         
@@ -79,38 +150,60 @@ class ModernButton(QPushButton):
     def __init__(self, text, icon_text="", parent=None):
         super().__init__(text, parent)
         self.icon_text = icon_text
+        self.is_night_mode = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("""
-            QPushButton {
+        self.update_style()
+        
+    def set_night_mode(self, is_night):
+        self.is_night_mode = is_night
+        self.update_style()
+        
+    def update_style(self):
+        text_color = "#FFFFFF" if self.is_night_mode else "#1a1a1a"
+        hover_bg = "rgba(255, 255, 255, 0.1)" if self.is_night_mode else "rgba(255, 193, 7, 0.2)"
+        pressed_bg = "rgba(255, 255, 255, 0.2)" if self.is_night_mode else "rgba(255, 193, 7, 0.4)"
+        
+        self.setStyleSheet(f"""
+            QPushButton {{
                 background-color: transparent;
                 border: 1px solid #FFC107;
                 border-radius: 4px;
-                color: #1a1a1a;
+                color: {text_color};
                 font-weight: bold;
                 font-size: 12px;
                 padding: 2px 8px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 193, 7, 0.2);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 193, 7, 0.4);
-            }
-            QPushButton:disabled {
+            }}
+            QPushButton:hover {{
+                background-color: {hover_bg};
+            }}
+            QPushButton:pressed {{
+                background-color: {pressed_bg};
+            }}
+            QPushButton:disabled {{
                 border: 1px solid #E0E0E0;
                 color: #BDBDBD;
-            }
+            }}
         """)
 
 
 class ContentFrame(QFrame):
     """右側內容區塊，包含右下角調整大小的標示"""
     
-    def paintEvent(self, event):
-        super().paintEvent(event)
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.is_night_mode = False
         
+    def set_night_mode(self, is_night):
+        self.is_night_mode = is_night
+        self.update()
+    
+    def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # 背景
+        bg_color = QColor(30, 30, 30, 240) if self.is_night_mode else QColor(255, 255, 255, 240)
+        painter.fillRect(self.rect(), bg_color)
         
         # 繪製右下角調整大小的斜線標示
         pen = QPen(QColor(255, 193, 7))
@@ -139,6 +232,7 @@ class TranscriptionWindow(QWidget):
         # 視窗屬性
         self.is_pinned = True
         self.is_live_mode = True
+        self.is_night_mode = False
         self.current_index = 0
         self.sentences = []
         
@@ -184,7 +278,6 @@ class TranscriptionWindow(QWidget):
         content = ContentFrame()
         content.setStyleSheet("""
             QFrame {
-                background-color: rgba(255, 255, 255, 240);
                 border: 1px solid #FFC107;
                 border-left: none;
                 border-radius: 0px 8px 8px 0px;
@@ -229,17 +322,22 @@ class TranscriptionWindow(QWidget):
         
         layout.addStretch()
         
+        # 夜間模式按鈕
+        self.theme_btn = ThemeButton()
+        self.theme_btn.clicked.connect(self.toggle_theme)
+        layout.addWidget(self.theme_btn)
+        
         # 釘選按鈕
         self.pin_btn = PinButton()
         self.pin_btn.clicked.connect(self.toggle_pin)
         layout.addWidget(self.pin_btn)
         
         # 關閉按鈕
-        close_btn = ModernButton("✕")
-        close_btn.setFixedSize(24, 24)
-        close_btn.setToolTip("關閉程式")
-        close_btn.clicked.connect(self.close_window)
-        close_btn.setStyleSheet("""
+        self.close_btn = ModernButton("✕")
+        self.close_btn.setFixedSize(24, 24)
+        self.close_btn.setToolTip("關閉程式")
+        self.close_btn.clicked.connect(self.close_window)
+        self.close_btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
                 border: none;
@@ -253,7 +351,7 @@ class TranscriptionWindow(QWidget):
                 border-radius: 4px;
             }
         """)
-        layout.addWidget(close_btn)
+        layout.addWidget(self.close_btn)
         
         return layout
         
@@ -292,6 +390,57 @@ class TranscriptionWindow(QWidget):
         
         return layout
         
+    def toggle_theme(self):
+        """切換夜間模式"""
+        self.is_night_mode = not self.is_night_mode
+        self.theme_btn.set_night_mode(self.is_night_mode)
+        self.apply_theme()
+        
+    def apply_theme(self):
+        """應用主題樣式"""
+        # 更新拖拽區塊
+        self.drag_handle.set_night_mode(self.is_night_mode)
+        
+        # 更新內容區塊
+        if isinstance(self.content_widget, ContentFrame):
+            self.content_widget.set_night_mode(self.is_night_mode)
+            
+        # 更新文字顯示
+        text_color = "#FFFFFF" if self.is_night_mode else "#1a1a1a"
+        self.text_display.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: transparent;
+                border: none;
+                color: {text_color};
+                font-size: 14px;
+                font-family: 'Microsoft YaHei', 'Arial', sans-serif;
+                padding: 5px;
+            }}
+        """)
+        
+        # 更新按鈕
+        self.pin_btn.set_night_mode(self.is_night_mode)
+        self.prev_btn.set_night_mode(self.is_night_mode)
+        self.mode_btn.set_night_mode(self.is_night_mode)
+        self.next_btn.set_night_mode(self.is_night_mode)
+        
+        # 更新關閉按鈕
+        close_color = "#AAAAAA" if self.is_night_mode else "#757575"
+        self.close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                border: none;
+                color: {close_color};
+                font-weight: bold;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                color: #F44336;
+                background-color: rgba(244, 67, 54, 0.1);
+                border-radius: 4px;
+            }}
+        """)
+
     def mousePressEvent(self, event):
         """滑鼠按下事件 - 用於拖拽和調整大小"""
         if event.button() == Qt.MouseButton.LeftButton:
