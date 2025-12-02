@@ -52,6 +52,9 @@ class RealtimeTranscriberManager:
             try:
                 chunk = self.audio_queue.get(timeout=0.2)
             except queue.Empty:
+                # 若長時間沒有收到新的音訊，但 buffer 中仍有文字，則強制 flush
+                if self._segment_chunks and self._silence_time >= self._min_silence:
+                    self._flush_segment()
                 continue
             self._process_chunk(chunk)
 
