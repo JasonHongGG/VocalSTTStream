@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import queue
 import threading
-from typing import List
+from typing import Callable, List, Optional
 
 import numpy as np
 
@@ -20,6 +20,7 @@ class RealtimeTranscriberManager:
         min_silence_seconds: float,
         max_segment_seconds: float,
         vad_energy_threshold: float,
+        sentence_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
         self.capture = capture
         self.transcriber = transcriber
@@ -27,6 +28,7 @@ class RealtimeTranscriberManager:
         self._min_silence = min_silence_seconds
         self._max_segment = max_segment_seconds
         self._vad_threshold = vad_energy_threshold
+        self._sentence_callback = sentence_callback
         self.audio_queue: "queue.Queue[np.ndarray]" = queue.Queue(maxsize=queue_maxsize)
         self.stop_event = threading.Event()
         self._threads: List[threading.Thread] = []
@@ -99,6 +101,8 @@ class RealtimeTranscriberManager:
             return
         sentences = self._sentence_buffer.add_text(text)
         for sentence in sentences:
+            if self._sentence_callback:
+                self._sentence_callback(sentence)
             print(sentence)
 
     def start(self) -> None:
@@ -115,7 +119,9 @@ class RealtimeTranscriberManager:
         for thread in self._threads:
             thread.join(timeout=2.0)
         self.capture.stop()
-		# 輸出最後尚未結束於標點的殘餘文字（如果有）
+        # 輸出最後尚未結束於標點的殘餘文字（如果有）
         rest = self._sentence_buffer.flush_rest()
         if rest:
+            if self._sentence_callback:
+                self._sentence_callback(rest)
             print(rest)
