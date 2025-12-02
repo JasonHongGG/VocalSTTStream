@@ -1,0 +1,4 @@
+*test*
+*.wav
+/**/*.wav
+/.venv/*
