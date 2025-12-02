@@ -24,6 +24,7 @@ class WhisperTranscriber:
         task: str,
         beam_size: int,
         vad_filter: bool = True,
+        initial_prompt: Optional[str] = None,
     ) -> None:
         print("載入模型請稍候...")
         self._language = language
@@ -38,6 +39,7 @@ class WhisperTranscriber:
             device=device,
             compute_type=compute_type,
         )
+        self._initial_prompt = initial_prompt
         print("=> 模型載入完成。")
 
     def transcribe(self, audio: np.ndarray) -> str:
@@ -47,6 +49,11 @@ class WhisperTranscriber:
             language=self._language,
             task=self._task,
             vad_filter=self._vad_filter,
+            vad_parameters=dict(
+                min_silence_duration_ms=500,  # 增加靜音判斷時間，避免切在句子中間
+                speech_pad_ms=400             # 在語音前後多保留一點聲音
+            ),
+            initial_prompt=self._initial_prompt
         )
         text = "".join(seg.text for seg in segments).strip()
         if text and self._traditional_converter and self._contains_cjk(text):

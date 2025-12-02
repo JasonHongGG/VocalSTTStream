@@ -38,6 +38,7 @@ class Config:
     task: str
     beam_size: int
     queue_maxsize: int = 50
+    initial_prompt: Optional[str] = None
 
     @classmethod
     def load(cls, env_path: Path | None = None) -> "Config":
@@ -55,6 +56,7 @@ class Config:
             language=os.getenv("LANGUAGE") or None,
             task=os.getenv("TASK", "transcribe"),
             beam_size=int(os.getenv("BEAM_SIZE", "3")),
+            initial_prompt=os.getenv("INITIAL_PROMPT") or None,
         )
 
 config = Config.load()

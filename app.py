@@ -14,6 +14,8 @@ def main() -> None:
         language=config.language,
         task=config.task,
         beam_size=config.beam_size,
+        vad_filter=True,
+        initial_prompt=config.initial_prompt,
     )
     app = RealtimeTranscriberManager(
         capture,

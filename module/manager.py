@@ -6,6 +6,8 @@ from typing import List
 
 import numpy as np
 
+from .sentence_buffer import SentenceBuffer
+
 
 class RealtimeTranscriberManager:
     def __init__(
@@ -31,6 +33,7 @@ class RealtimeTranscriberManager:
         self._segment_chunks: list[np.ndarray] = []
         self._segment_duration = 0.0
         self._silence_time = 0.0
+        self._sentence_buffer = SentenceBuffer()
 
     def _capture_loop(self) -> None:
         try:
@@ -84,8 +87,16 @@ class RealtimeTranscriberManager:
         self._segment_duration = 0.0
         self._silence_time = 0.0
         text = self.transcriber.transcribe(audio)
-        if text:
-            print(text)
+        # 直接 output
+        # if text:
+        #     print(text)
+
+        # 透過 buffer 處理標點 一句一句輸出
+        if not text:
+            return
+        sentences = self._sentence_buffer.add_text(text)
+        for sentence in sentences:
+            print(sentence)
 
     def start(self) -> None:
         self.capture.start()
@@ -101,3 +112,7 @@ class RealtimeTranscriberManager:
         for thread in self._threads:
             thread.join(timeout=2.0)
         self.capture.stop()
+		# 輸出最後尚未結束於標點的殘餘文字（如果有）
+        rest = self._sentence_buffer.flush_rest()
+        if rest:
+            print(rest)
