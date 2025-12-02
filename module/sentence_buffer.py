@@ -1,6 +1,6 @@
 class SentenceBuffer:
 
-	def __init__(self, delimiters: str = "。！？!?") -> None:
+	def __init__(self, delimiters: str = ".。！？!?") -> None:
 		self._buffer = ""
 		self._delimiters = delimiters
 
