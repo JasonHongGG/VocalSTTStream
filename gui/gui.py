@@ -9,6 +9,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QPen, QFont, QLinearGradient, QPainterPath
 
+# 全域配置
+FONT_SIZE = 24  # 預設字體大小
+
 
 class DragHandle(QWidget):
     """左側拖拽區塊，帶有斜線紋理"""
@@ -233,6 +236,7 @@ class TranscriptionWindow(QWidget):
         self.is_pinned = True
         self.is_live_mode = True
         self.is_night_mode = False
+        self.font_size = FONT_SIZE
         self.current_index = 0
         self.sentences = []
         
@@ -295,15 +299,15 @@ class TranscriptionWindow(QWidget):
         # 中間句子顯示區
         self.text_display = QTextEdit()
         self.text_display.setReadOnly(True)
-        self.text_display.setStyleSheet("""
-            QTextEdit {
+        self.text_display.setStyleSheet(f"""
+            QTextEdit {{
                 background-color: transparent;
                 border: none;
                 color: #1a1a1a;
-                font-size: 14px;
+                font-size: {self.font_size}px;
                 font-family: 'Microsoft YaHei', 'Arial', sans-serif;
                 padding: 5px;
-            }
+            }}
         """)
         self.text_display.setPlaceholderText("等待語音輸入...")
         layout.addWidget(self.text_display, 1)
@@ -412,7 +416,7 @@ class TranscriptionWindow(QWidget):
                 background-color: transparent;
                 border: none;
                 color: {text_color};
-                font-size: 14px;
+                font-size: {self.font_size}px;
                 font-family: 'Microsoft YaHei', 'Arial', sans-serif;
                 padding: 5px;
             }}
