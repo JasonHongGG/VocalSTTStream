@@ -25,7 +25,13 @@ class SelectableLabel(QTextEdit):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setWordWrapMode(QTextOption.WrapMode.WordWrap)
-        self.setSizeAdjustPolicy(QTextEdit.SizeAdjustPolicy.AdjustToContents)
+        self.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)  # 確保按寬度換行
+        
+        # 文檔與外圍 padding 設定
+        # 文字本身不留邊距，全部由 viewportMargins 控制
+        self.document().setDocumentMargin(0)
+        
+        # 設置樣式
         self.setStyleSheet("""
             QTextEdit {
                 background-color: transparent;
@@ -36,16 +42,70 @@ class SelectableLabel(QTextEdit):
                 font-family: 'Microsoft YaHei', 'Arial', sans-serif;
             }
         """)
-        # 自動調整高度
-        self.document().setDocumentMargin(0)
-        self.setFixedHeight(self.get_text_height())
+        
+        # padding 與寬度狀態
+        self._left_right_padding = 10   # 左右 padding
+        self._top_bottom_padding = 6    # 上下 padding
+        self._explicit_text_width = -1  # 由外部指定的文本寬度（含 padding）
+
+        # 初始 viewport 邊距，確保一開始就有 padding
+        self.setViewportMargins(
+            self._left_right_padding,
+            self._top_bottom_padding,
+            self._left_right_padding,
+            self._top_bottom_padding,
+        )
+
+    def setTextWidth(self, total_width: int):
+        """由外部設定整體寬度（包含左右 padding）"""
+        self._explicit_text_width = max(total_width, 0)
+        inner_width = max(total_width - self._left_right_padding * 2, 0)
+        self.document().setTextWidth(inner_width)
+        self.updateHeight()
     
-    def get_text_height(self):
-        """計算文字所需的精確高度"""
-        doc = self.document().clone()
-        doc.setTextWidth(self.viewport().width() if self.viewport().width() > 0 else 500)
-        height = doc.size().height()
-        return int(height) + 2  # 加一點小邊距
+    def updateHeight(self):
+        """根據內容更新高度，讓區塊緊貼文字高度並保留 padding"""
+        # 以「目前 widget 寬度」或「外部指定寬度」來決定文字寬
+        effective_width = self._explicit_text_width if self._explicit_text_width > 0 else self.width()
+        inner_width = max(effective_width - self._left_right_padding * 2, 0)
+
+        if inner_width > 0:
+            self.document().setTextWidth(inner_width)
+
+        # 重新套用 viewportMargins，確保上下左右 padding 一致
+        self.setViewportMargins(
+            self._left_right_padding,
+            self._top_bottom_padding,
+            self._left_right_padding,
+            self._top_bottom_padding,
+        )
+
+        # 取得文字本身高度
+        doc_height = self.document().size().height()
+
+        # 總高度 = 文字高度 + 上下 padding
+        total_height = int(doc_height) + self._top_bottom_padding * 2
+
+        # 設置固定高度，確保每次呼叫都會依內容更新
+        self.setFixedHeight(total_height)
+    
+    def sizeHint(self):
+        """返回建議的大小"""
+        from PyQt6.QtCore import QSize
+        # 與 updateHeight 相同的計算邏輯
+        effective_width = self._explicit_text_width if self._explicit_text_width > 0 else (self.width() or 500)
+        inner_width = max(effective_width - self._left_right_padding * 2, 0)
+        if inner_width > 0:
+            self.document().setTextWidth(inner_width)
+
+        doc_height = self.document().size().height()
+        total_height = int(doc_height) + self._top_bottom_padding * 2
+        return QSize(effective_width, total_height)
+    
+    def resizeEvent(self, event):
+        """當 widget 大小改變時重新計算高度"""
+        super().resizeEvent(event)
+        self.updateHeight()
 
 
 class DragHandle(QWidget):
@@ -286,6 +346,9 @@ class HistoryDialog(QDialog):
         self.apply_theme()
         self.populate_list(scroll_to_bottom=True)  # 初始化填充列表並滾動到底部
 
+        # 當列表寬度改變時，重新套用每個 block 的寬度與高度
+        self.list_widget.resizeEvent = self._list_resize_event_wrapper(self.list_widget.resizeEvent)
+
     def init_ui(self):
         """初始化 UI"""
         # 主佈局
@@ -380,6 +443,8 @@ class HistoryDialog(QDialog):
         self.list_widget.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
         self.list_widget.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.list_widget.setWordWrap(True)
+        self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # 禁用水平滾動條
+        self.list_widget.setSpacing(6)  # 以 spacing 取代 item padding 來控制 block 間距
         self.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list_widget.customContextMenuRequested.connect(self.open_context_menu)
         self.list_widget.setStyleSheet("""
@@ -394,8 +459,8 @@ class HistoryDialog(QDialog):
                 outline: none;
             }
             QListWidget::item {
-                padding: 8px;
-                margin: 2px 0px;
+                padding: 0px;
+                margin: 0px;
                 border-radius: 4px;
                 border: none;
             }
@@ -418,19 +483,47 @@ class HistoryDialog(QDialog):
         content.setLayout(layout)
         return content
 
+    def _list_resize_event_wrapper(self, original_resize_event):
+        """包一層 resizeEvent，在 QListWidget 寬度變化時更新所有 SelectableLabel"""
+
+        def wrapper(event):
+            # 先呼叫原本的 resize 行為
+            if original_resize_event is not None:
+                original_resize_event(event)
+
+            # 根據新的 viewport 寬度更新每個 block
+            available_width = max(self.list_widget.viewport().width() - 10, 100)
+            for i in range(self.list_widget.count()):
+                item = self.list_widget.item(i)
+                widget = self.list_widget.itemWidget(item)
+                if isinstance(widget, SelectableLabel):
+                    widget.setFixedWidth(available_width)
+                    widget.setTextWidth(available_width)
+                    item.setSizeHint(widget.sizeHint())
+
+        return wrapper
+
     def populate_list(self, filter_text: str = "", scroll_to_bottom: bool = False):
         """將句子填入列表，根據搜尋文字過濾，新訊息在下方"""
         self.list_widget.clear()
         ft = filter_text.strip().lower()
+        
+        # 獲取列表可用寬度（扣除滾動條和邊距）
+        available_width = max(self.list_widget.viewport().width() - 10, 100)
+        
         for s in self.sentences:  # 移除 reversed，讓新訊息在下方
             if not ft or ft in s.lower():
                 item = QListWidgetItem(self.list_widget)
                 # 創建可選取文字的 widget
                 label = SelectableLabel(s)
-                # 設置 item 的高度為內容高度 + padding
-                item.setSizeHint(label.sizeHint())
+                # 先添加 item 和 widget
                 self.list_widget.addItem(item)
                 self.list_widget.setItemWidget(item, label)
+                # 設置 label 寬度（包含 padding）並根據內容更新高度
+                label.setFixedWidth(available_width)
+                label.setTextWidth(available_width)
+                # 使用 sizeHint 作為 item 高度，確保 block 與文字高度同步
+                item.setSizeHint(label.sizeHint())
         
         # 只在指定時滾動到最底部
         if scroll_to_bottom:
@@ -476,10 +569,21 @@ class HistoryDialog(QDialog):
         menu.exec(self.list_widget.mapToGlobal(point))
     
     def toggle_theme(self):
-        """切換夜間模式"""
+        """切換夜間模式並同步到父視窗"""
         self.is_night_mode = not self.is_night_mode
         self.theme_btn.set_night_mode(self.is_night_mode)
         self.apply_theme()
+        
+        # 同步到父視窗
+        if self.parent_window is not None:
+            self.parent_window.set_night_mode(self.is_night_mode)
+    
+    def set_night_mode(self, is_night: bool):
+        """設置夜間模式（由父視窗調用）"""
+        if self.is_night_mode != is_night:
+            self.is_night_mode = is_night
+            self.theme_btn.set_night_mode(self.is_night_mode)
+            self.apply_theme()
     
     def apply_theme(self):
         """應用主題樣式"""
@@ -534,8 +638,8 @@ class HistoryDialog(QDialog):
                 outline: none;
             }}
             QListWidget::item {{
-                padding: 8px;
-                margin: 2px 0px;
+                padding: 0px;
+                margin: 0px;
                 border-radius: 4px;
                 border: none;
             }}
@@ -815,10 +919,24 @@ class TranscriptionWindow(QWidget):
         return layout
         
     def toggle_theme(self):
-        """切換夜間模式"""
+        """切換夜間模式並同步到歷史視窗"""
         self.is_night_mode = not self.is_night_mode
         self.theme_btn.set_night_mode(self.is_night_mode)
         self.apply_theme()
+        
+        # 同步到歷史視窗
+        if self.history_dialog is not None and self.history_dialog.isVisible():
+            self.history_dialog.set_night_mode(self.is_night_mode)
+    
+    def set_night_mode(self, is_night: bool):
+        """設置夜間模式（由歷史視窗調用）"""
+        if self.is_night_mode != is_night:
+            self.is_night_mode = is_night
+            self.theme_btn.set_night_mode(self.is_night_mode)
+            self.apply_theme()
+            # 也同步到歷史視窗
+            if self.history_dialog is not None and self.history_dialog.isVisible():
+                self.history_dialog.set_night_mode(self.is_night_mode)
         
     def apply_theme(self):
         """應用主題樣式"""
