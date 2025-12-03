@@ -45,6 +45,18 @@ MIN_SILENCE_SECONDS=0.6
 LANGUAGE=
 ```
 
+#### 噪音片語 (NOISE_PHRASES)
+改為由 `config.json` 管理，格式如下：
+```json
+{
+    "noise_phrases": [
+        "日本語的文章。",
+        "英文字幕提供。"
+    ]
+}
+```
+若同時存在 `.env` 的 `NOISE_PHRASES`，會以 `config.json` 為主。
+
 ### 載入環境
 ```
 source .venv/Scripts/activate 

@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import ast
+import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
+
+BASE_DIR = Path(__file__).resolve().parent
 
 
 def load_dotenv(path: Path | None = None) -> None:
     """Minimal .env loader to avoid extra dependencies."""
-    target_path = Path(path) if path else Path.cwd() / ".env"
+    target_path = Path(path) if path else BASE_DIR / ".env"
     if not target_path.exists():
         return
 
@@ -21,6 +26,26 @@ def load_dotenv(path: Path | None = None) -> None:
         value = value.strip().strip('"').strip("'")
         if key and key not in os.environ:
             os.environ[key] = value
+
+def _load_noise_phrases_from_json(path: Path | None = None) -> Tuple[str, ...]:
+    target_path = Path(path) if path else BASE_DIR / "config.json"
+    if not target_path.exists():
+        return ()
+
+    try:
+        data = json.loads(target_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"config.json 解析失敗: {exc}")
+        return ()
+
+    # 支援大小寫不同的 key
+    phrases = data.get("noise_phrases")
+    if phrases is None:
+        return ()
+    if isinstance(phrases, list):
+        return tuple(str(item) for item in phrases)
+    print("config.json 的 NOISE_PHRASES 必須是字串陣列。")
+    return ()
 
 
 @dataclass(slots=True)
@@ -39,6 +64,7 @@ class Config:
     beam_size: int
     queue_maxsize: int = 50
     initial_prompt: Optional[str] = None
+    noise_phrases: Tuple[str, ...] = ()
 
     @classmethod
     def load(cls, env_path: Path | None = None) -> "Config":
@@ -57,6 +83,7 @@ class Config:
             task=os.getenv("TASK", "transcribe"),
             beam_size=int(os.getenv("BEAM_SIZE", "3")),
             initial_prompt=os.getenv("INITIAL_PROMPT") or None,
+            noise_phrases=_load_noise_phrases_from_json(),
         )
 
 config = Config.load()

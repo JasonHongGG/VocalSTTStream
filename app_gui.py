@@ -50,6 +50,7 @@ class TranscriptionThread(QThread):
             max_segment_seconds=config.max_segment_seconds,
             vad_energy_threshold=config.vad_energy_threshold,
             sentence_callback=self.on_sentence_received,
+            noise_phrases=config.noise_phrases,
         )
         
         # 啟動轉錄

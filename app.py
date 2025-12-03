@@ -25,6 +25,7 @@ def main() -> None:
         min_silence_seconds=config.min_silence_seconds,
         max_segment_seconds=config.max_segment_seconds,
         vad_energy_threshold=config.vad_energy_threshold,
+        noise_phrases=config.noise_phrases,
     )
     app.start()
     try:

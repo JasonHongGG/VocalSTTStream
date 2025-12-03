@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import queue
 import threading
-from typing import Callable, List, Optional
+from typing import Callable, Iterable, List, Optional
 
 import numpy as np
 
@@ -10,6 +10,8 @@ from .sentence_buffer import SentenceBuffer
 
 
 class RealtimeTranscriberManager:
+    _PUNCTUATION_CHARS = set("。.！？!?…‥,，、;；:：~～-—─‧·•\"'` “”‘’()[]{}<>《》〈〉﹑﹒﹔﹖﹗﹕﹘﹣﹥﹤﹩﹪﹡﹟﹨、 ")
+
     def __init__(
         self,
         capture,
@@ -21,6 +23,7 @@ class RealtimeTranscriberManager:
         max_segment_seconds: float,
         vad_energy_threshold: float,
         sentence_callback: Optional[Callable[[str], None]] = None,
+        noise_phrases: Optional[Iterable[str]] = None,
     ) -> None:
         self.capture = capture
         self.transcriber = transcriber
@@ -36,6 +39,7 @@ class RealtimeTranscriberManager:
         self._segment_duration = 0.0
         self._silence_time = 0.0
         self._sentence_buffer = SentenceBuffer()
+        self._noise_phrases = noise_phrases
 
     def _capture_loop(self) -> None:
         try:
@@ -92,15 +96,13 @@ class RealtimeTranscriberManager:
         self._segment_duration = 0.0
         self._silence_time = 0.0
         text = self.transcriber.transcribe(audio)
-        # 直接 output
-        # if text:
-        #     print(text)
 
-        # 透過 buffer 處理標點 一句一句輸出
         if not text:
             return
         sentences = self._sentence_buffer.add_text(text)
         for sentence in sentences:
+            if self._should_skip_sentence(sentence):
+                continue
             if self._sentence_callback:
                 self._sentence_callback(sentence)
             print(sentence)
@@ -116,12 +118,21 @@ class RealtimeTranscriberManager:
 
     def stop(self) -> None:
         self.stop_event.set()
-        for thread in self._threads:
-            thread.join(timeout=2.0)
         self.capture.stop()
-        # 輸出最後尚未結束於標點的殘餘文字（如果有）
-        rest = self._sentence_buffer.flush_rest()
-        if rest:
-            if self._sentence_callback:
-                self._sentence_callback(rest)
-            print(rest)
+        for thread in self._threads:
+            thread.join(timeout=1.0)
+        self._threads.clear()
+        self._segment_chunks.clear()
+        self._sentence_buffer = SentenceBuffer()
+
+    def _should_skip_sentence(self, sentence: str) -> bool:
+        stripped = sentence.strip()
+        if not stripped:
+            return True
+        if stripped in self._noise_phrases:
+            return True
+        # 移除所有標點與空白，若無剩餘內容則視為無效句子
+        content_chars = [ch for ch in stripped if ch not in self._PUNCTUATION_CHARS]
+        if not content_chars:
+            return True
+        return False
