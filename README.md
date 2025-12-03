@@ -1,17 +1,3 @@
-### 專案結構
-```
-voice/
-├── .env                  # 可調整模型/音訊參數
-├── app.py                # 主要進入點（命令列版本）
-├── app_gui.py            # GUI 版本進入點
-├── config.py             # Config 物件，讀取 .env 並提供型別安全的屬性
-├── gui/
-│   └── modern_window.py  # 現代化 GUI 視窗介面
-└── module/
-    ├── capture.py        # SystemAudioCapture 類別
-    ├── manager.py        # RealtimeTranscriberManager 類別
-    └── transcriber.py    # WhisperTranscriber 類別（內含繁體輸出邏輯）
-```
 
 ### 運行程式
 
@@ -19,14 +5,6 @@ voice/
 ```bash
 python app_gui.py
 ```
-
-**GUI 功能說明：**
-- **拖拽移動**：抓住左側有斜線紋理的區域拖拽視窗
-- **釘選按鈕**：📌 按鈕可切換視窗是否保持在最上層
-- **關閉按鈕**：✕ 按鈕關閉程式
-- **自動模式**：預設為自動模式，即時顯示最新的轉錄句子
-- **手動模式**：點擊 ⏸ 按鈕切換到手動模式，可用 ◀ ▶ 按鈕瀏覽歷史句子
-- **文字選取**：句子可以直接框選複製
 
 **命令列版本：**
 ```bash

@@ -2,3 +2,8 @@
 *.wav
 /**/*.wav
 /.venv/*
+.env
+/model/*
+/logo/*
+dist/
+build/

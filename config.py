@@ -8,15 +8,30 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
-BASE_DIR = Path(__file__).resolve().parent
+try:
+    import sys
+except ImportError:  # pragma: no cover - defensive
+    sys = None
 
+def _detect_base_dir() -> Path:
+    # executable mode (PyInstaller, etc.)
+    if sys and getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    
+    # script mode
+    return Path(__file__).resolve().parent
+
+BASE_DIR = _detect_base_dir()
+print(f"配置目錄: {BASE_DIR}")
 
 def load_dotenv(path: Path | None = None) -> None:
     """Minimal .env loader to avoid extra dependencies."""
     target_path = Path(path) if path else BASE_DIR / ".env"
     if not target_path.exists():
+        print(f".env 檔案 {target_path} 不存在，跳過載入。")
         return
 
+    print(f"載入環境變數自 {target_path}")
     for raw_line in target_path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -30,8 +45,10 @@ def load_dotenv(path: Path | None = None) -> None:
 def _load_noise_phrases_from_json(path: Path | None = None) -> Tuple[str, ...]:
     target_path = Path(path) if path else BASE_DIR / "config.json"
     if not target_path.exists():
+        print(f"config.json 檔案 {target_path} 不存在，跳過載入噪音詞彙。")
         return ()
-
+    
+    print(f"載入噪音詞彙自 {target_path}")
     try:
         data = json.loads(target_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
