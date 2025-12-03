@@ -47,6 +47,7 @@ class SelectableLabel(QTextEdit):
         self._left_right_padding = 10   # 左右 padding
         self._top_bottom_padding = 6    # 上下 padding
         self._explicit_text_width = -1  # 由外部指定的文本寬度（含 padding）
+        self.is_night_mode = False
 
         # 初始 viewport 邊距，確保一開始就有 padding
         self.setViewportMargins(
@@ -55,6 +56,8 @@ class SelectableLabel(QTextEdit):
             self._left_right_padding,
             self._top_bottom_padding,
         )
+
+        self.apply_theme()
 
     def setTextWidth(self, total_width: int):
         """由外部設定整體寬度（包含左右 padding）"""
@@ -106,6 +109,38 @@ class SelectableLabel(QTextEdit):
         """當 widget 大小改變時重新計算高度"""
         super().resizeEvent(event)
         self.updateHeight()
+
+    def set_theme(self, is_night: bool):
+        """套用夜間/日間主題"""
+        if self.is_night_mode != is_night:
+            self.is_night_mode = is_night
+            self.apply_theme()
+        else:
+            # 即便狀態相同，也重新套用以反映顏色變更
+            self.apply_theme()
+
+    def apply_theme(self):
+        if self.is_night_mode:
+            bg = "rgba(255, 193, 7, 0.20)"  # 柔和黃調，符合夜間主色
+            border = "rgba(255, 213, 79, 0.60)"
+            text = "#FFFFFF"
+        else:
+            bg = "rgba(255, 235, 59, 0.35)"  # 日間使用更亮的蜂蜜黃
+            border = "rgba(255, 193, 7, 0.35)"
+            text = "#1a1a1a"
+
+        self.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 8px;
+                padding: 0px;
+                margin: 0px;
+                color: {text};
+                font-size: 13px;
+                font-family: 'Microsoft YaHei', 'Arial', sans-serif;
+            }}
+        """)
 
 
 class DragHandle(QWidget):
@@ -516,6 +551,7 @@ class HistoryDialog(QDialog):
                 item = QListWidgetItem(self.list_widget)
                 # 創建可選取文字的 widget
                 label = SelectableLabel(s)
+                label.set_theme(self.is_night_mode)
                 # 先添加 item 和 widget
                 self.list_widget.addItem(item)
                 self.list_widget.setItemWidget(item, label)
@@ -598,8 +634,12 @@ class HistoryDialog(QDialog):
         text_color = "#FFFFFF" if self.is_night_mode else "#1a1a1a"
         bg_color = "rgba(40, 40, 40, 0.95)" if self.is_night_mode else "rgba(255, 255, 255, 0.95)"
         border_color = "#FFC107"
-        hover_bg = "rgba(255, 255, 255, 0.1)" if self.is_night_mode else "rgba(255, 193, 7, 0.1)"
-        selected_bg = "rgba(255, 255, 255, 0.2)" if self.is_night_mode else "rgba(255, 193, 7, 0.3)"
+        if self.is_night_mode:
+            hover_bg = "rgba(255, 193, 7, 0.55)"
+            selected_bg = "rgba(255, 213, 79, 0.55)"
+        else:
+            hover_bg = "rgba(255, 193, 7, 0.45)"
+            selected_bg = "rgba(255, 193, 7, 0.45)"
         
         # 更新標題
         self.title_label.setStyleSheet(f"""
@@ -657,6 +697,13 @@ class HistoryDialog(QDialog):
                 border: none;
             }}
         """)
+
+        # 也更新每個 block 自己的樣式
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            widget = self.list_widget.itemWidget(item)
+            if isinstance(widget, SelectableLabel):
+                widget.set_theme(self.is_night_mode)
         
         # 更新關閉按鈕
         close_color = "#AAAAAA" if self.is_night_mode else "#757575"
