@@ -11,20 +11,8 @@ python app_gui.py
 python app.py
 ```
 
-### 調整參數
-在 `.env` 中修改，例如：
-```
-MODEL_SIZE=medium
-DEVICE=cuda
-COMPUTE_TYPE=int8
-WINDOW_SECONDS=4.0
-MIN_SILENCE_SECONDS=0.6
-# 留空代表自動語言偵測，若強制語言則填入 iso 代碼 (ex: zh, en)
-LANGUAGE=
-```
-
 #### 噪音片語 (NOISE_PHRASES)
-改為由 `config.json` 管理，格式如下：
+格式如下：
 ```json
 {
     "noise_phrases": [
@@ -33,7 +21,6 @@ LANGUAGE=
     ]
 }
 ```
-若同時存在 `.env` 的 `NOISE_PHRASES`，會以 `config.json` 為主。
 
 ### 載入環境
 ```
@@ -64,6 +51,8 @@ export PATH="$VIRTUAL_ENV/Lib/site-packages/nvidia/cublas/bin:$PATH"
 ```
 
 ### 套件環境變數設定
-在 .venv/Scripts/activate 檔案中直接加入
-export PATH="$VIRTUAL_ENV/Lib/site-packages/nvidia/cublas/bin:$PATH"
+在 .venv/Scripts/activate 檔案中直接加入    
+
+export PATH="$VIRTUAL_ENV/Lib/site-packages/nvidia/cublas/bin:$PATH"  
+
 export PATH="$VIRTUAL_ENV/Lib/site-packages/nvidia/cudnn/bin:$PATH"
