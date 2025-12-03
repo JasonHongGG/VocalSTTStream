@@ -4,13 +4,48 @@ Modern PyQt6 GUI for Voice Transcription
 """
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QTextEdit, 
-    QPushButton, QLabel, QFrame
+    QPushButton, QLabel, QFrame, QDialog, QLineEdit,
+    QListWidget, QListWidgetItem, QDialogButtonBox, QMenu, QApplication
 )
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal
-from PyQt6.QtGui import QPainter, QColor, QPen, QFont, QLinearGradient, QPainterPath
+from PyQt6.QtGui import QPainter, QColor, QPen, QFont, QLinearGradient, QPainterPath, QTextOption
 
 # 全域配置
 FONT_SIZE = 24  # 預設字體大小
+
+
+class SelectableLabel(QTextEdit):
+    """可選取文字的 Label，用於歷史句子列表"""
+    
+    def __init__(self, text, parent=None):
+        super().__init__(parent)
+        self.setPlainText(text)
+        self.setReadOnly(True)
+        self.setFrameStyle(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setWordWrapMode(QTextOption.WrapMode.WordWrap)
+        self.setSizeAdjustPolicy(QTextEdit.SizeAdjustPolicy.AdjustToContents)
+        self.setStyleSheet("""
+            QTextEdit {
+                background-color: transparent;
+                border: none;
+                padding: 0px;
+                margin: 0px;
+                font-size: 13px;
+                font-family: 'Microsoft YaHei', 'Arial', sans-serif;
+            }
+        """)
+        # 自動調整高度
+        self.document().setDocumentMargin(0)
+        self.setFixedHeight(self.get_text_height())
+    
+    def get_text_height(self):
+        """計算文字所需的精確高度"""
+        doc = self.document().clone()
+        doc.setTextWidth(self.viewport().width() if self.viewport().width() > 0 else 500)
+        height = doc.size().height()
+        return int(height) + 2  # 加一點小邊距
 
 
 class DragHandle(QWidget):
@@ -222,6 +257,383 @@ class ContentFrame(QFrame):
             painter.drawLine(w - 2, h - 2 - offset, w - 2 - offset, h - 2)
 
 
+class HistoryDialog(QDialog):
+    """彈出式視窗：顯示所有歷史句子，支援搜尋與複製"""
+
+    def __init__(self, sentences, is_night_mode=False, parent=None):
+        super().__init__(parent)
+        self.sentences = list(sentences) if sentences is not None else []
+        self.is_night_mode = is_night_mode
+        self.parent_window = parent  # 保存父視窗引用
+        
+        # 拖拽與調整大小相關
+        self.drag_position = QPoint()
+        self.resizing = False
+        self.resize_margin = 10
+        
+        # 設置無邊框視窗
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint | 
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.Dialog
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setMouseTracking(True)  # 啟用滑鼠追蹤以更改游標
+        self.resize(600, 400)
+        self.setMinimumSize(400, 300)
+        
+        self.init_ui()
+        self.apply_theme()
+        self.populate_list(scroll_to_bottom=True)  # 初始化填充列表並滾動到底部
+
+    def init_ui(self):
+        """初始化 UI"""
+        # 主佈局
+        main_layout = QHBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # 左側拖拽區塊
+        self.drag_handle = DragHandle()
+        main_layout.addWidget(self.drag_handle)
+        
+        # 右側內容區
+        self.content_widget = self.create_content_area()
+        main_layout.addWidget(self.content_widget)
+        
+        self.setLayout(main_layout)
+
+    def create_content_area(self):
+        """創建右側內容區"""
+        content = ContentFrame()
+
+        
+        layout = QVBoxLayout()
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(8)
+        
+        # 頂部標題和控制區
+        top_layout = QHBoxLayout()
+        
+        # 標題
+        self.title_label = QLabel("歷史紀錄")
+        self.title_label.setStyleSheet("""
+            QLabel {
+                font-size: 16px;
+                font-weight: bold;
+                color: #1a1a1a;
+            }
+        """)
+        top_layout.addWidget(self.title_label)
+        top_layout.addStretch()
+        
+        # 夜間模式按鈕
+        self.theme_btn = ThemeButton()
+        self.theme_btn.set_night_mode(self.is_night_mode)
+        self.theme_btn.clicked.connect(self.toggle_theme)
+        top_layout.addWidget(self.theme_btn)
+        
+        # 關閉按鈕
+        self.close_btn = ModernButton("✕")
+        self.close_btn.setFixedSize(24, 24)
+        self.close_btn.setToolTip("關閉")
+        self.close_btn.clicked.connect(self.reject)
+        self.close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                color: #757575;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                color: #F44336;
+                background-color: rgba(244, 67, 54, 0.1);
+                border-radius: 4px;
+            }
+        """)
+        top_layout.addWidget(self.close_btn)
+        
+        layout.addLayout(top_layout)
+        
+        # 搜尋輸入框
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("搜尋句子...")
+        self.search_input.textChanged.connect(self.on_search)
+        self.search_input.setStyleSheet("""
+            QLineEdit {
+                background-color: transparent;
+                border: 1px solid #FFC107;
+                border-radius: 4px;
+                color: #1a1a1a;
+                font-size: 12px;
+                padding: 5px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #FFD54F;
+            }
+        """)
+        layout.addWidget(self.search_input)
+        
+        # 列表顯示 (每個句子獨立的 block)
+        self.list_widget = QListWidget()
+        self.list_widget.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self.list_widget.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.list_widget.setWordWrap(True)
+        self.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list_widget.customContextMenuRequested.connect(self.open_context_menu)
+        self.list_widget.setStyleSheet("""
+            QListWidget {
+                background-color: transparent;
+                border: 1px solid #FFC107;
+                border-radius: 4px;
+                color: #1a1a1a;
+                font-size: 13px;
+                padding: 5px;
+                font-family: 'Microsoft YaHei', 'Arial', sans-serif;
+                outline: none;
+            }
+            QListWidget::item {
+                padding: 8px;
+                margin: 2px 0px;
+                border-radius: 4px;
+                border: none;
+            }
+            QListWidget::item:hover {
+                background-color: rgba(255, 193, 7, 0.15);
+            }
+            QListWidget::item:selected {
+                background-color: rgba(255, 193, 7, 0.4);
+                color: #1a1a1a;
+                border: none;
+                outline: none;
+            }
+            QListWidget::item:focus {
+                outline: none;
+                border: none;
+            }
+        """)
+        layout.addWidget(self.list_widget, 1)
+        
+        content.setLayout(layout)
+        return content
+
+    def populate_list(self, filter_text: str = "", scroll_to_bottom: bool = False):
+        """將句子填入列表，根據搜尋文字過濾，新訊息在下方"""
+        self.list_widget.clear()
+        ft = filter_text.strip().lower()
+        for s in self.sentences:  # 移除 reversed，讓新訊息在下方
+            if not ft or ft in s.lower():
+                item = QListWidgetItem(self.list_widget)
+                # 創建可選取文字的 widget
+                label = SelectableLabel(s)
+                # 設置 item 的高度為內容高度 + padding
+                item.setSizeHint(label.sizeHint())
+                self.list_widget.addItem(item)
+                self.list_widget.setItemWidget(item, label)
+        
+        # 只在指定時滾動到最底部
+        if scroll_to_bottom:
+            self.list_widget.scrollToBottom()
+
+    def on_search(self, text: str):
+        self.populate_list(text)
+    
+    def update_sentences(self, sentences):
+        """更新句子列表（由父視窗調用）"""
+        old_count = len(self.sentences)
+        self.sentences = list(sentences)
+        current_search = self.search_input.text()
+        # 只有在新增句子時才滾動到底部
+        scroll_to_bottom = len(self.sentences) > old_count and not current_search
+        self.populate_list(current_search, scroll_to_bottom=scroll_to_bottom)
+
+    def open_context_menu(self, point):
+        """顯示右鍵選單"""
+        item = self.list_widget.itemAt(point)
+        if item is None:
+            return
+        
+        # 獲取 item 中的 widget
+        widget = self.list_widget.itemWidget(item)
+        if widget is None:
+            return
+        
+        menu = QMenu(self)
+        
+        # 檢查是否有選取文字
+        if isinstance(widget, SelectableLabel):
+            cursor = widget.textCursor()
+            if cursor.hasSelection():
+                # 有選取文字，複製選取的部分
+                copy_action = menu.addAction("複製選取文字")
+                copy_action.triggered.connect(lambda: QApplication.clipboard().setText(cursor.selectedText()))
+            else:
+                # 沒有選取文字，複製整句
+                copy_action = menu.addAction("複製整句")
+                copy_action.triggered.connect(lambda: QApplication.clipboard().setText(widget.toPlainText()))
+        
+        menu.exec(self.list_widget.mapToGlobal(point))
+    
+    def toggle_theme(self):
+        """切換夜間模式"""
+        self.is_night_mode = not self.is_night_mode
+        self.theme_btn.set_night_mode(self.is_night_mode)
+        self.apply_theme()
+    
+    def apply_theme(self):
+        """應用主題樣式"""
+        # 更新拖拽區塊
+        self.drag_handle.set_night_mode(self.is_night_mode)
+        
+        # 更新內容區塊
+        if isinstance(self.content_widget, ContentFrame):
+            self.content_widget.set_night_mode(self.is_night_mode)
+        
+        # 顏色定義
+        text_color = "#FFFFFF" if self.is_night_mode else "#1a1a1a"
+        bg_color = "rgba(40, 40, 40, 0.95)" if self.is_night_mode else "rgba(255, 255, 255, 0.95)"
+        border_color = "#FFC107"
+        hover_bg = "rgba(255, 255, 255, 0.1)" if self.is_night_mode else "rgba(255, 193, 7, 0.1)"
+        selected_bg = "rgba(255, 255, 255, 0.2)" if self.is_night_mode else "rgba(255, 193, 7, 0.3)"
+        
+        # 更新標題
+        self.title_label.setStyleSheet(f"""
+            QLabel {{
+                font-size: 16px;
+                font-weight: bold;
+                color: {text_color};
+            }}
+        """)
+        
+        # 更新搜尋框
+        self.search_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: transparent;
+                border: 1px solid {border_color};
+                border-radius: 4px;
+                color: {text_color};
+                font-size: 12px;
+                padding: 5px;
+            }}
+            QLineEdit:focus {{
+                border: 1px solid #FFD54F;
+            }}
+        """)
+        
+        # 更新列表顯示
+        self.list_widget.setStyleSheet(f"""
+            QListWidget {{
+                background-color: transparent;
+                border: 1px solid {border_color};
+                border-radius: 4px;
+                color: {text_color};
+                font-size: 13px;
+                padding: 5px;
+                font-family: 'Microsoft YaHei', 'Arial', sans-serif;
+                outline: none;
+            }}
+            QListWidget::item {{
+                padding: 8px;
+                margin: 2px 0px;
+                border-radius: 4px;
+                border: none;
+            }}
+            QListWidget::item:hover {{
+                background-color: {hover_bg};
+            }}
+            QListWidget::item:selected {{
+                background-color: {selected_bg};
+                color: {text_color};
+                border: none;
+                outline: none;
+            }}
+            QListWidget::item:focus {{
+                outline: none;
+                border: none;
+            }}
+        """)
+        
+        # 更新關閉按鈕
+        close_color = "#AAAAAA" if self.is_night_mode else "#757575"
+        self.close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                border: none;
+                color: {close_color};
+                font-weight: bold;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                color: #F44336;
+                background-color: rgba(244, 67, 54, 0.1);
+                border-radius: 4px;
+            }}
+        """)
+        
+        # 重新填充列表以更新顯示
+        current_search = self.search_input.text()
+        self.populate_list(current_search)
+    
+    def mousePressEvent(self, event):
+        """滑鼠按下事件 - 用於拖拽和調整大小"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            # 檢查是否在調整大小區域 (右下角)
+            if self.check_resize_area(event.pos()):
+                self.resizing = True
+                self.resize_start_pos = event.globalPosition().toPoint()
+                self.resize_start_size = self.size()
+                event.accept()
+                return
+
+            # 檢查是否點擊在拖拽區域
+            if self.drag_handle.geometry().contains(event.pos()):
+                self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                event.accept()
+    
+    def mouseMoveEvent(self, event):
+        """滑鼠移動事件 - 用於拖拽和調整大小"""
+        # 更新游標形狀
+        self.update_cursor(event.pos())
+
+        if event.buttons() == Qt.MouseButton.LeftButton:
+            if self.resizing:
+                # 調整大小邏輯
+                delta = event.globalPosition().toPoint() - self.resize_start_pos
+                new_width = max(self.minimumWidth(), self.resize_start_size.width() + delta.x())
+                new_height = max(self.minimumHeight(), self.resize_start_size.height() + delta.y())
+                self.resize(new_width, new_height)
+                event.accept()
+            elif not self.drag_position.isNull():
+                # 移動視窗邏輯
+                self.move(event.globalPosition().toPoint() - self.drag_position)
+                event.accept()
+    
+    def mouseReleaseEvent(self, event):
+        """滑鼠釋放事件"""
+        self.drag_position = QPoint()
+        self.resizing = False
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+
+    def check_resize_area(self, pos):
+        """檢查滑鼠是否在調整大小區域 (右下角三角形區域)"""
+        rect = self.rect()
+        resize_grip_size = 20
+        
+        # 檢查是否在右下角區域
+        if (pos.x() > rect.width() - resize_grip_size and 
+            pos.y() > rect.height() - resize_grip_size):
+            return True
+        return False
+
+    def update_cursor(self, pos):
+        """根據滑鼠位置更新游標"""
+        if self.check_resize_area(pos):
+            self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        else:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+
+
 class TranscriptionWindow(QWidget):
     """主視窗類"""
     
@@ -239,6 +651,7 @@ class TranscriptionWindow(QWidget):
         self.font_size = FONT_SIZE
         self.current_index = 0
         self.sentences = []
+        self.history_dialog = None  # 追蹤歷史視窗
         
         # 拖拽與調整大小相關
         self.drag_position = QPoint()
@@ -330,6 +743,13 @@ class TranscriptionWindow(QWidget):
         self.theme_btn = ThemeButton()
         self.theme_btn.clicked.connect(self.toggle_theme)
         layout.addWidget(self.theme_btn)
+
+        # 歷史句子按鈕
+        self.history_btn = ModernButton("歷史")
+        self.history_btn.setFixedSize(60, 24)
+        self.history_btn.setToolTip("顯示歷史句子")
+        self.history_btn.clicked.connect(self.open_history_dialog)
+        layout.addWidget(self.history_btn)
         
         # 釘選按鈕
         self.pin_btn = PinButton()
@@ -424,6 +844,7 @@ class TranscriptionWindow(QWidget):
         
         # 更新按鈕
         self.pin_btn.set_night_mode(self.is_night_mode)
+        self.history_btn.set_night_mode(self.is_night_mode)
         self.prev_btn.set_night_mode(self.is_night_mode)
         self.mode_btn.set_night_mode(self.is_night_mode)
         self.next_btn.set_night_mode(self.is_night_mode)
@@ -581,6 +1002,26 @@ class TranscriptionWindow(QWidget):
             self.display_current_sentence()
             
         self.update_navigation_buttons()
+        
+        # 即時更新歷史視窗
+        if self.history_dialog is not None and self.history_dialog.isVisible():
+            self.history_dialog.update_sentences(self.sentences)
+        
+    def open_history_dialog(self):
+        """打開歷史句子對話框"""
+        # 如果已經有打開的視窗，就不再開新的
+        if self.history_dialog is not None and self.history_dialog.isVisible():
+            self.history_dialog.raise_()
+            self.history_dialog.activateWindow()
+            return
+        
+        self.history_dialog = HistoryDialog(self.sentences, self.is_night_mode, parent=self)
+        self.history_dialog.finished.connect(self.on_history_dialog_closed)
+        self.history_dialog.show()  # 使用 show() 而不是 exec() 以支援非模態對話框
+    
+    def on_history_dialog_closed(self):
+        """歷史視窗關閉時清理引用"""
+        self.history_dialog = None
         
     def close_window(self):
         """關閉視窗"""
