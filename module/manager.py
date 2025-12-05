@@ -40,6 +40,7 @@ class RealtimeTranscriberManager:
         self._silence_time = 0.0
         self._sentence_buffer = SentenceBuffer()
         self._noise_phrases = noise_phrases
+        self._max_silence_pad = 0.3  # at most this much trailing silence is kept
 
     def _capture_loop(self) -> None:
         try:
@@ -73,7 +74,7 @@ class RealtimeTranscriberManager:
             self._silence_time = 0.0
         else:
             self._silence_time += len(chunk) / self._target_sample_rate
-            if self._segment_chunks:
+            if self._segment_chunks and self._silence_time <= (self._min_silence + self._max_silence_pad):
                 self._append_chunk(chunk)
 
         if not self._segment_chunks:
@@ -88,13 +89,17 @@ class RealtimeTranscriberManager:
         self._segment_chunks.append(chunk)
         self._segment_duration += len(chunk) / self._target_sample_rate
 
-    def _flush_segment(self) -> None:
-        if not self._segment_chunks:
-            return
-        audio = np.concatenate(self._segment_chunks)
+    def _reset_segment_state(self) -> None:
         self._segment_chunks.clear()
         self._segment_duration = 0.0
         self._silence_time = 0.0
+
+    def _flush_segment(self, *, force: bool = False) -> None:
+        if not self._segment_chunks:
+            return
+
+        audio = np.concatenate(self._segment_chunks)
+        self._reset_segment_state()
         text = self.transcriber.transcribe(audio)
 
         if not text:
@@ -119,17 +124,17 @@ class RealtimeTranscriberManager:
     def stop(self) -> None:
         self.stop_event.set()
         self.capture.stop()
+        self._flush_segment(force=True)
         for thread in self._threads:
             thread.join(timeout=1.0)
         self._threads.clear()
-        self._segment_chunks.clear()
         self._sentence_buffer = SentenceBuffer()
 
     def _should_skip_sentence(self, sentence: str) -> bool:
         stripped = sentence.strip()
         if not stripped:
             return True
-        if stripped in self._noise_phrases:
+        if self._noise_phrases and stripped in self._noise_phrases:
             return True
         # 移除所有標點與空白，若無剩餘內容則視為無效句子
         content_chars = [ch for ch in stripped if ch not in self._PUNCTUATION_CHARS]

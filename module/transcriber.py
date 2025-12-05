@@ -25,12 +25,18 @@ class WhisperTranscriber:
         beam_size: int,
         vad_filter: bool = True,
         initial_prompt: Optional[str] = None,
+        temperature: float = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0,],
+        no_speech_threshold: float = 0.5,
+        condition_on_previous_text: bool = False, # 防止前一段的內容影響下一段的生成結果
     ) -> None:
         print("載入模型請稍候...")
         self._language = language
         self._task = task
         self._beam_size = beam_size
         self._vad_filter = vad_filter
+        self._temperature = temperature
+        self._no_speech_threshold = no_speech_threshold
+        self._condition_on_previous_text = condition_on_previous_text
         if OpenCC is None:
             raise ImportError("請安裝 opencc 套件以啟用繁體輸出: pip install opencc")
         self._traditional_converter = OpenCC("s2t")
@@ -53,7 +59,10 @@ class WhisperTranscriber:
                 min_silence_duration_ms=500,  # 增加靜音判斷時間，避免切在句子中間
                 speech_pad_ms=400             # 在語音前後多保留一點聲音
             ),
-            initial_prompt=self._initial_prompt
+            initial_prompt=self._initial_prompt,
+            temperature=self._temperature,
+            no_speech_threshold=self._no_speech_threshold,
+            condition_on_previous_text=self._condition_on_previous_text,
         )
         text = "".join(seg.text for seg in segments).strip()
         if text and self._traditional_converter and self._contains_cjk(text):
